@@ -77,6 +77,7 @@ type fsm13 struct {
 	flights                []*dtlsflight.Outbound
 	retransmit             bool
 	retransmitInterval     time.Duration
+	retransmitAttempts     int
 	retransmitAt           time.Time
 	peerRetransmitAfter    time.Time
 	peerRetransmitInterval time.Duration
@@ -288,6 +289,7 @@ func (s *fsm13) prepare(ctx context.Context, conn Conn) (nextState State, err er
 
 	s.flights = pkts
 	s.retransmitInterval = s.cfg.InitialRetransmitInterval
+	s.retransmitAttempts = 0
 	s.peerRetransmitAfter = time.Time{}
 	s.peerRetransmitInterval = 0
 	s.prepareFlightACKTracking(s.flights, s.retransmit)
@@ -352,7 +354,7 @@ func (s *fsm13) wait(ctx context.Context, conn Conn) (State, error) {
 				return StateErrored, err
 			}
 		case <-retransmitTimer.C():
-			return s.retransmitTimeout(), nil
+			return s.retransmitTimeout()
 		case <-ctx.Done():
 			return handleWaitCancellation(&s.retransmitInterval, s.cfg, ctx.Err())
 		}
@@ -390,7 +392,7 @@ func (s *fsm13) finish(ctx context.Context, conn Conn) (State, error) {
 		return StateFinished, s.postHandshake.retransmitPostHandshake(ctx, conn, now, s.cfg.DisableRetransmitBackoff)
 
 	case <-finalFlightC:
-		return s.retransmitTimeout(), nil
+		return s.retransmitTimeout()
 
 	case <-ctx.Done():
 		return StateErrored, ctx.Err()
@@ -570,12 +572,15 @@ func (s *fsm13) transitionAfterACK(result ACKResult, peerRetransmit bool) receiv
 	return receivedFlightTransition{state: StateWaiting}
 }
 
-func (s *fsm13) retransmitTimeout() State {
+func (s *fsm13) retransmitTimeout() (State, error) {
 	if s.retransmit {
 		backoffPeerRetransmit(&s.peerRetransmitAfter, &s.peerRetransmitInterval, s.cfg)
+		if err := countRetransmit(&s.retransmitAttempts, s.cfg); err != nil {
+			return StateErrored, err
+		}
 	}
 
-	return handleRetransmitTimeout(s.retransmit, &s.retransmitInterval, s.cfg)
+	return handleRetransmitTimeout(s.retransmit, &s.retransmitInterval, s.cfg), nil
 }
 
 func (s *fsm13) peerRetransmit() State {

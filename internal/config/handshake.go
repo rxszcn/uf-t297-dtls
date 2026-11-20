@@ -38,6 +38,14 @@ import (
 
 type ClientAuthType int
 
+// DefaultMaxRetransmitAttempts is the default retransmission budget for one
+// silent stretch of a handshake. With the default one-second initial interval
+// and the one-minute backoff cap it allows twelve retransmits over roughly
+// eight minutes before the handshake fails, covering weak-network recovery
+// and rolling-restart windows while still releasing in-flight handshakes
+// whose peer is gone for good.
+const DefaultMaxRetransmitAttempts = 12
+
 const (
 	NoClientCert ClientAuthType = iota
 	RequestClientCert
@@ -136,36 +144,42 @@ type HandshakeConfig struct {
 	ECHRejectionVerify func(internalstate.Active) error
 	PSKIdentityLimit   int
 	// SelectPSK returns the selected offer index, key, and hash, or a nil key if none match.
-	SelectPSK                     func(identities [][]byte) (index int, key []byte, hash crypto.Hash, err error)
-	GetPSKs                       func() ([]internalstate.PSK, error)
-	LocalPSKCallback              func([]byte) ([]byte, error)
-	LocalPSKIdentityHint          []byte
-	LocalCipherSuites             []CipherSuite
-	LocalSignatureSchemes         []signaturehash.Algorithm
-	LocalCertSignatureSchemes     []signaturehash.Algorithm
-	ExtendedMasterSecret          ExtendedMasterSecretType
-	LocalSRTPProtectionProfiles   []SRTPProtectionProfile
-	LocalSRTPMasterKeyIdentifier  []byte
-	ServerName                    string
-	SupportedProtocols            []string
-	ClientAuth                    ClientAuthType
-	LocalCertificates             []tls.Certificate
-	InsecureSkipVerify            bool
-	VerifyPeerCertificate         func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error
-	VerifyConnection              func(internalstate.Active) error
-	HasSessionStore               bool
-	MaxEarlyDataSize              uint32
-	EnableEarlyData               bool
-	ClaimEarlyData                func(ticket []byte, expiresAt time.Time) (bool, error)
-	GetSession                    func(key []byte) (internalstate.Session, error)
-	SetSession                    func(key []byte, session internalstate.Session) error
-	SetSessionTicket              func(key, id, secret, identity []byte, ticket internalstate.SessionTicket) error
-	GetSessionTicket              func(key []byte, serverName string) (*internalstate.PSK, error)
-	DelSession                    func(key []byte) error
-	RootCAs                       *x509.CertPool
-	ClientCAs                     *x509.CertPool
-	InitialRetransmitInterval     time.Duration
-	DisableRetransmitBackoff      bool
+	SelectPSK                    func(identities [][]byte) (index int, key []byte, hash crypto.Hash, err error)
+	GetPSKs                      func() ([]internalstate.PSK, error)
+	LocalPSKCallback             func([]byte) ([]byte, error)
+	LocalPSKIdentityHint         []byte
+	LocalCipherSuites            []CipherSuite
+	LocalSignatureSchemes        []signaturehash.Algorithm
+	LocalCertSignatureSchemes    []signaturehash.Algorithm
+	ExtendedMasterSecret         ExtendedMasterSecretType
+	LocalSRTPProtectionProfiles  []SRTPProtectionProfile
+	LocalSRTPMasterKeyIdentifier []byte
+	ServerName                   string
+	SupportedProtocols           []string
+	ClientAuth                   ClientAuthType
+	LocalCertificates            []tls.Certificate
+	InsecureSkipVerify           bool
+	VerifyPeerCertificate        func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error
+	VerifyConnection             func(internalstate.Active) error
+	HasSessionStore              bool
+	MaxEarlyDataSize             uint32
+	EnableEarlyData              bool
+	ClaimEarlyData               func(ticket []byte, expiresAt time.Time) (bool, error)
+	GetSession                   func(key []byte) (internalstate.Session, error)
+	SetSession                   func(key []byte, session internalstate.Session) error
+	SetSessionTicket             func(key, id, secret, identity []byte, ticket internalstate.SessionTicket) error
+	GetSessionTicket             func(key []byte, serverName string) (*internalstate.PSK, error)
+	DelSession                   func(key []byte) error
+	RootCAs                      *x509.CertPool
+	ClientCAs                    *x509.CertPool
+	InitialRetransmitInterval    time.Duration
+	DisableRetransmitBackoff     bool
+	// MaxRetransmitAttempts bounds consecutive retransmissions while the peer
+	// stays silent; the handshake fails once the budget is spent. The counter
+	// resets whenever the peer makes progress. Zero or negative disables the
+	// limit and restores unbounded retransmission. The public configuration
+	// assembles DefaultMaxRetransmitAttempts (12) when the option is not set.
+	MaxRetransmitAttempts         int
 	EllipticCurves                []elliptic.Curve
 	InsecureSkipHelloVerify       bool
 	ReceiveCIDLength              int

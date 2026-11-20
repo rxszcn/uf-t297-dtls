@@ -56,6 +56,7 @@ type fsm12 struct {
 	flights                []*dtlsflight.Outbound
 	retransmit             bool
 	retransmitInterval     time.Duration
+	retransmitAttempts     int
 	peerRetransmitAfter    time.Time
 	peerRetransmitInterval time.Duration
 	state                  *dtlsstate.State12
@@ -193,6 +194,9 @@ func (s *fsm12) wait(ctx context.Context, conn Conn) (State, error) {
 			}
 			if s.retransmit {
 				s.backoffPeerRetransmit()
+				if err := countRetransmit(&s.retransmitAttempts, s.cfg); err != nil {
+					return StateErrored, err
+				}
 			}
 
 			return handleRetransmitTimeout(s.retransmit, &s.retransmitInterval, s.cfg), nil
@@ -268,6 +272,7 @@ func (s *fsm12) handleWaitingFlight(ctx context.Context, conn Conn, state RecvHa
 	}
 	if !state.IsRetransmit {
 		s.retransmitInterval = s.cfg.InitialRetransmitInterval
+		s.retransmitAttempts = 0
 	}
 	s.cfg.Log.Tracef("[handshake:%s] %s -> %s", sideString(s.state.IsClient), s.currentFlight.String(), nextFlight.String())
 	if nextFlight.IsLastRecvFlight() && s.currentFlight == nextFlight {

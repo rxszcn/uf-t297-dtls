@@ -292,6 +292,40 @@ func TestInvalidNumericOptionsReturnError(t *testing.T) {
 	})
 }
 
+func TestMaxRetransmitAttemptsOption(t *testing.T) {
+	t.Run("Default", func(t *testing.T) {
+		config, err := buildConfig()
+		require.NoError(t, err)
+		assert.Equal(t, dtlsconfig.DefaultMaxRetransmitAttempts, config.MaxRetransmitAttempts)
+
+		handshakeConfig := newHandshakeConfig(config, connConfigValues{}, nil)
+		assert.Equal(t, dtlsconfig.DefaultMaxRetransmitAttempts, handshakeConfig.MaxRetransmitAttempts)
+	})
+
+	t.Run("ExplicitDisable", func(t *testing.T) {
+		config, err := buildConfig(WithMaxRetransmitAttempts(0))
+		require.NoError(t, err)
+		assert.Zero(t, config.MaxRetransmitAttempts)
+
+		handshakeConfig := newHandshakeConfig(config, connConfigValues{}, nil)
+		assert.Zero(t, handshakeConfig.MaxRetransmitAttempts)
+	})
+
+	t.Run("Custom", func(t *testing.T) {
+		config, err := buildConfig(WithMaxRetransmitAttempts(5))
+		require.NoError(t, err)
+		assert.Equal(t, 5, config.MaxRetransmitAttempts)
+
+		handshakeConfig := newHandshakeConfig(config, connConfigValues{}, nil)
+		assert.Equal(t, 5, handshakeConfig.MaxRetransmitAttempts)
+	})
+
+	t.Run("Negative", func(t *testing.T) {
+		require.ErrorIs(t, clientOptionsError(t, WithMaxRetransmitAttempts(-1)), errInvalidMaxRetransmitAttempts)
+		require.ErrorIs(t, serverOptionsError(t, WithMaxRetransmitAttempts(-1)), errInvalidMaxRetransmitAttempts)
+	})
+}
+
 func TestBoundedNumericOptionValues(t *testing.T) {
 	tests := map[string]struct {
 		option Option

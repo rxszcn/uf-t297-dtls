@@ -12,6 +12,7 @@ import (
 	"crypto/rsa"
 	"crypto/tls"
 	"crypto/x509"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -68,6 +69,7 @@ type dtlsConfig struct {
 	ExtendedMasterSecret          ExtendedMasterSecretType
 	FlightInterval                time.Duration
 	DisableRetransmitBackoff      bool
+	MaxRetransmitAttempts         int
 	InsecureSkipVerify            bool
 	InsecureHashes                bool
 	VerifyPeerCertificate         func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error
@@ -123,6 +125,7 @@ func applyOptions[T any](isClient bool, opts []T, apply func(T, *dtlsConfig) err
 		isClient:               isClient,
 		ExtendedMasterSecret:   RequestExtendedMasterSecret,
 		FlightInterval:         time.Second,
+		MaxRetransmitAttempts:  dtlsconfig.DefaultMaxRetransmitAttempts,
 		MTU:                    defaultMTU,
 		ReceiveBufferSize:      defaultReceiveBufferSize,
 		ReplayProtectionWindow: defaultReplayProtectionWindow,
@@ -241,6 +244,21 @@ func WithFlightInterval(interval time.Duration) Option {
 // WithDisableRetransmitBackoff disables retransmit backoff.
 func WithDisableRetransmitBackoff(disable bool) Option {
 	return valueOption(func(c *dtlsConfig) *bool { return &c.DisableRetransmitBackoff }, disable)
+}
+
+// errInvalidMaxRetransmitAttempts rejects a negative retransmission budget.
+var errInvalidMaxRetransmitAttempts = errors.New("max retransmit attempts must be non-negative")
+
+// WithMaxRetransmitAttempts sets how many times one silent stretch of the
+// handshake may be retransmitted before the handshake fails with a
+// retransmit-limit error. The counter resets whenever the peer makes
+// progress, so a peer recovering from a brief weak-network loss regains the
+// full budget. The default is 12 attempts, which with the default
+// FlightInterval and backoff cap spans roughly eight minutes. Zero disables
+// the limit and restores the previous unbounded retransmission behavior.
+// Returns an error if attempts is negative.
+func WithMaxRetransmitAttempts(attempts int) Option {
+	return valueOption(func(c *dtlsConfig) *int { return &c.MaxRetransmitAttempts }, attempts, optionError(attempts < 0, errInvalidMaxRetransmitAttempts))
 }
 
 // PSK is an external pre-shared key and its identity.
@@ -902,6 +920,7 @@ func newHandshakeConfig(config *dtlsConfig, configValues connConfigValues, resum
 		ClientCAs:                     config.ClientCAs,
 		InitialRetransmitInterval:     configValues.initialRetransmitInterval,
 		DisableRetransmitBackoff:      config.DisableRetransmitBackoff,
+		MaxRetransmitAttempts:         config.MaxRetransmitAttempts,
 		EllipticCurves:                configValues.ellipticCurves,
 		InsecureSkipHelloVerify:       config.InsecureSkipVerifyHello,
 		ReceiveCIDLength:              config.ReceiveCIDLength,

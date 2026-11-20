@@ -15,6 +15,26 @@ import (
 
 type fsmStateHandler func(context.Context, Conn) (State, error)
 
+// ErrRetransmitLimitExceeded reports that the handshake retransmission budget
+// was exhausted while the peer stayed silent. It is distinct from peer
+// rejection (alert errors) and local network failures so operations can
+// classify the failure separately.
+var ErrRetransmitLimitExceeded = errors.New("handshake retransmit limit exceeded")
+
+// countRetransmit charges one retransmission against the configured budget.
+// A non-positive MaxRetransmitAttempts disables the budget entirely.
+func countRetransmit(attempts *int, cfg *dtlsconfig.HandshakeConfig) error {
+	if cfg.MaxRetransmitAttempts <= 0 {
+		return nil
+	}
+	*attempts++
+	if *attempts > cfg.MaxRetransmitAttempts {
+		return ErrRetransmitLimitExceeded
+	}
+
+	return nil
+}
+
 // runHandshakeFSM drives the shared preparing/sending/waiting/finished loop.
 func runHandshakeFSM(ctx context.Context, conn Conn, initialState State, closed chan struct{}, establishment *Establishment, trace func(State), prepare, send, wait, finish fsmStateHandler) error {
 	state := initialState
